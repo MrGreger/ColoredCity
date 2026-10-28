@@ -1,11 +1,19 @@
 <!DOCTYPE html>
-<html lang="en-us">
+<html lang="ru">
   <head>
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Unity Web Player | ColoredCity</title>
+    <title>ColoredCity</title>
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
+    <!-- установка на домашний экран: без панелей браузера (iPhone — только так, Fullscreen API там нет) -->
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="TemplateData/icon-192.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ColoredCity">
+    <meta name="theme-color" content="#1e2a3a">
   </head>
   <body>
     <div id="unity-container" class="unity-desktop">
@@ -22,6 +30,12 @@
         <div id="unity-fullscreen-button"></div>
         <div id="unity-build-title">ColoredCity</div>
       </div>
+      <!-- мобилка: вернуться в полный экран / подсказка про домашний экран на iPhone -->
+      <div id="mobile-fullscreen-button"></div>
+      <div id="ios-install-hint">
+        Чтобы играть на весь экран, нажмите «Поделиться» ⬆︎ и выберите «На экран Домой», затем откройте игру с иконки.
+        <div id="ios-install-hint-close">Понятно</div>
+      </div>
     </div>
     <script>
       var canvas = document.querySelector("#unity-canvas");
@@ -29,9 +43,6 @@
       // Shows a temporary message banner/ribbon for a few seconds, or
       // a permanent error message on top of the canvas if type=='error'.
       // If type=='warning', a yellow highlight color is used.
-      // Modify or remove this function to customize the visually presented
-      // way that non-critical warnings and error messages are presented to the
-      // user.
       function unityShowBanner(msg, type) {
         var warningBanner = document.querySelector("#unity-warning");
         function updateBannerVisibility() {
@@ -63,43 +74,62 @@
         productName: "ColoredCity",
         productVersion: "0.1.0",
         showBanner: unityShowBanner,
-        // errorHandler: function(err, url, line) {
-        //    alert("error " + err + " occurred at line " + line);
-        //    // Return 'true' if you handled this error and don't want Unity
-        //    // to process it further, 'false' otherwise.
-        //    return true;
-        // },
       };
 
-      // By default, Unity keeps WebGL canvas render target size matched with
-      // the DOM size of the canvas element (scaled by window.devicePixelRatio)
-      // Set this to false if you want to decouple this synchronization from
-      // happening inside the engine, and you would instead like to size up
-      // the canvas DOM size and WebGL render target sizes yourself.
-      // config.matchWebGLToCanvasSize = false;
+      // ---------- полный экран на мобилке ----------
+      // Android: Fullscreen API — по первому касанию и по кнопке, плюс поворот в альбомную ориентацию.
+      // iPhone: Fullscreen API для страниц нет — кнопка показывает подсказку «На экран Домой»
+      // (оттуда игра открывается без панелей браузера благодаря манифесту и apple-mobile-web-app-capable).
+      var root = document.documentElement;
+      var canFullscreen = !!(root.requestFullscreen || root.webkitRequestFullscreen);
+      var isStandalone = window.matchMedia('(display-mode: fullscreen)').matches ||
+                         window.matchMedia('(display-mode: standalone)').matches ||
+                         window.navigator.standalone === true;
 
-      // If you would like all file writes inside Unity Application.persistentDataPath
-      // directory to automatically persist so that the contents are remembered when
-      // the user revisits the site the next time, uncomment the following line:
-      // config.autoSyncPersistentDataPath = true;
-      // This autosyncing is currently not the default behavior to avoid regressing
-      // existing user projects that might rely on the earlier manual
-      // JS_FileSystem_Sync() behavior, but in future Unity version, this will be
-      // expected to change.
+      function isFullscreen() {
+        return !!(document.fullscreenElement || document.webkitFullscreenElement);
+      }
+
+      function enterFullscreen() {
+        if (isFullscreen()) return;
+        var request = root.requestFullscreen
+          ? root.requestFullscreen({ navigationUI: 'hide' })
+          : root.webkitRequestFullscreen();
+        Promise.resolve(request).then(function() {
+          if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(function() {});
+        }).catch(function() {});
+      }
+
+      function setupMobileFullscreen() {
+        var button = document.querySelector("#mobile-fullscreen-button");
+        var hint = document.querySelector("#ios-install-hint");
+        if (isStandalone) return;   // уже открыта с домашнего экрана — и так на весь экран
+
+        if (canFullscreen) {
+          // первое касание игры сразу разворачивает её
+          document.addEventListener('touchend', enterFullscreen, { once: true });
+          function updateButton() { button.style.display = isFullscreen() ? 'none' : 'block'; }
+          document.addEventListener('fullscreenchange', updateButton);
+          document.addEventListener('webkitfullscreenchange', updateButton);
+          button.onclick = enterFullscreen;
+          updateButton();
+        } else {
+          button.style.display = 'block';
+          button.onclick = function() { hint.style.display = 'block'; };
+          document.querySelector("#ios-install-hint-close").onclick = function() { hint.style.display = 'none'; };
+        }
+      }
 
       if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
         // Mobile device style: fill the whole browser client area with the game canvas:
 
         var meta = document.createElement('meta');
         meta.name = 'viewport';
-        meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
+        meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes, viewport-fit=cover';
         document.getElementsByTagName('head')[0].appendChild(meta);
         document.querySelector("#unity-container").className = "unity-mobile";
         canvas.className = "unity-mobile";
-
-        // To lower canvas resolution on mobile devices to gain some
-        // performance, uncomment the following line:
-        // config.devicePixelRatio = 1;
+        setupMobileFullscreen();
 
 
       } else {
